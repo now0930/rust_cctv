@@ -10,3 +10,21 @@ path = "src/lib.rs"
 [[bin]]
 name = "rust-cctv"
 path = "src/main.rs"
+
+[[bin]]
+name = "rtsp-probe"
+path = "src/bin/rtsp_probe.rs"
+
+[[bin]]
+name = "model-probe"
+path = "src/bin/model_probe.rs"
+
+[[bin]]
+name = "event-db"
+path = "src/bin/event_db.rs"
+
+[dependencies]
+ffmpeg-next = { version = "7.1.0", default-features = false, features = ["codec", "format", "software-scaling"] }
+libc = "0.2.190"
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+tract-onnx = "0.23.8"

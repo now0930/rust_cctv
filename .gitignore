@@ -1,4 +1,6 @@
 /target
+/.codex-target
+/data/
 /storage
 /frigate-storage/
 /frigate-data/

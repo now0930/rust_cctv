@@ -3,6 +3,8 @@ services:
     image: bluenviron/mediamtx:1
     command: ["/mediamtx.yml"]
     restart: unless-stopped
+    ports:
+      - "127.0.0.1:8554:8554/tcp"
     devices:
       - /dev/video0:/dev/video0
     group_add:
