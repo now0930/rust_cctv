@@ -107,6 +107,7 @@ if grep -Fq "$config_marker" "$host_config"; then
   awk -v marker="$config_marker" -v ip="$moonfire_ip" -v frigate_ip="$frigate_ip" '
     index($0, marker) { in_block = !in_block }
     in_block && /ProxyPass(Reverse)? \/frigate/ { next }
+    in_block && /RedirectMatch 301 \^\/frigate/ { next }
     in_block && /ProxyPass \/ http:\/\/[^:]+:8080\// {
       sub(/http:\/\/[^:]+:8080\//, "http://" ip ":8080/")
     }
@@ -115,6 +116,7 @@ if grep -Fq "$config_marker" "$host_config"; then
     }
     in_block && /ProxyPreserveHost On/ {
       print
+      printf "    RedirectMatch 301 ^/frigate$ /frigate/\n"
       printf "    ProxyPass /frigate/ws ws://%s:8971/frigate/ws\n", frigate_ip
       printf "    ProxyPassReverse /frigate/ws ws://%s:8971/frigate/ws\n", frigate_ip
       printf "    ProxyPass /frigate/live/ ws://%s:8971/frigate/live/\n", frigate_ip
@@ -141,6 +143,7 @@ else
 
     ProxyRequests Off
     ProxyPreserveHost On
+    RedirectMatch 301 ^/frigate$ /frigate/
     ProxyPass /frigate/ws ws://$frigate_ip:8971/frigate/ws
     ProxyPassReverse /frigate/ws ws://$frigate_ip:8971/frigate/ws
     ProxyPass /frigate/live/ ws://$frigate_ip:8971/frigate/live/
