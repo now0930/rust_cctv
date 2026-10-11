@@ -106,7 +106,7 @@ if grep -Fq "$config_marker" "$host_config"; then
   cp -p -- "$host_config" "$backup"
   awk -v marker="$config_marker" -v ip="$moonfire_ip" -v frigate_ip="$frigate_ip" '
     index($0, marker) { in_block = !in_block }
-    in_block && /ProxyPass(Reverse)? \/frigate\// { next }
+    in_block && /ProxyPass(Reverse)? \/frigate/ { next }
     in_block && /ProxyPass \/ http:\/\/[^:]+:8080\// {
       sub(/http:\/\/[^:]+:8080\//, "http://" ip ":8080/")
     }
@@ -115,12 +115,12 @@ if grep -Fq "$config_marker" "$host_config"; then
     }
     in_block && /ProxyPreserveHost On/ {
       print
-      printf "    ProxyPass /frigate/ws ws://%s:8971/frigate/ws\\n", frigate_ip
-      printf "    ProxyPassReverse /frigate/ws ws://%s:8971/frigate/ws\\n", frigate_ip
-      printf "    ProxyPass /frigate/live/ ws://%s:8971/frigate/live/\\n", frigate_ip
-      printf "    ProxyPassReverse /frigate/live/ ws://%s:8971/frigate/live/\\n", frigate_ip
-      printf "    ProxyPass /frigate/ http://%s:8971/frigate/\\n", frigate_ip
-      printf "    ProxyPassReverse /frigate/ http://%s:8971/frigate/\\n", frigate_ip
+      printf "    ProxyPass /frigate/ws ws://%s:8971/frigate/ws\n", frigate_ip
+      printf "    ProxyPassReverse /frigate/ws ws://%s:8971/frigate/ws\n", frigate_ip
+      printf "    ProxyPass /frigate/live/ ws://%s:8971/frigate/live/\n", frigate_ip
+      printf "    ProxyPassReverse /frigate/live/ ws://%s:8971/frigate/live/\n", frigate_ip
+      printf "    ProxyPass /frigate/ http://%s:8971/frigate/\n", frigate_ip
+      printf "    ProxyPassReverse /frigate/ http://%s:8971/frigate/\n", frigate_ip
       next
     }
     { print }
