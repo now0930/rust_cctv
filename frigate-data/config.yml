@@ -1,6 +1,9 @@
 mqtt:
   enabled: false
 
+tls:
+  enabled: false
+
 go2rtc:
   streams:
     logitech_c922: rtsp://webcam-rtsp:8554/webcam
@@ -27,3 +30,4 @@ cameras:
       enabled: true
       retain:
         default: 3
+version: 0.18-0
