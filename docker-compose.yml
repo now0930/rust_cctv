@@ -1,0 +1,86 @@
+services:
+  webcam-rtsp:
+    image: bluenviron/mediamtx:1
+    command: ["/mediamtx.yml"]
+    restart: unless-stopped
+    devices:
+      - /dev/video0:/dev/video0
+    group_add:
+      - "${VIDEO_GID:-44}"
+    volumes:
+      - ./config/mediamtx.yml:/mediamtx.yml:ro
+    networks:
+      - default
+
+  webcam-publisher:
+    image: linuxserver/ffmpeg:latest
+    depends_on:
+      - webcam-rtsp
+    restart: unless-stopped
+    devices:
+      - /dev/video0:/dev/video0
+    group_add:
+      - "${VIDEO_GID:-44}"
+    command:
+      - -hide_banner
+      - -loglevel
+      - info
+      - -f
+      - v4l2
+      - -input_format
+      - mjpeg
+      - -video_size
+      - 1280x720
+      - -framerate
+      - "30"
+      - -i
+      - /dev/video0
+      - -an
+      - -c:v
+      - libx264
+      - -preset
+      - ultrafast
+      - -tune
+      - zerolatency
+      - -pix_fmt
+      - yuv420p
+      - -g
+      - "30"
+      - -f
+      - rtsp
+      - -rtsp_transport
+      - tcp
+      - rtsp://webcam-rtsp:8554/webcam
+    networks:
+      - default
+
+  moonfire-nvr:
+    image: ghcr.io/scottlamb/moonfire-nvr:v0.7.33
+    command: run
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8081:8080"
+    volumes:
+      - ./storage:/var/lib/moonfire-nvr
+      - ./config/moonfire-nvr.toml:/etc/moonfire-nvr.toml:ro
+      - ${CAMERA_STORAGE_PATH:-./storage/recordings}:${CAMERA_STORAGE_CONTAINER:-/recordings}
+      - /var/tmp:/var/tmp
+      - /usr/share/zoneinfo:/usr/share/zoneinfo:ro
+    networks:
+      default: {}
+      web:
+        aliases:
+          - moonfire-nvr
+    user: "${PUID:-1000}:${PGID:-1000}"
+    depends_on:
+      - webcam-rtsp
+      - webcam-publisher
+    environment:
+      TZ: Asia/Seoul
+      RUST_BACKTRACE: "1"
+
+networks:
+  default:
+  web:
+    external: true
+    name: ${PROXY_NETWORK:-proxy}

@@ -1,0 +1,12 @@
+[package]
+name = "rust-cctv"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "rust_cctv"
+path = "src/lib.rs"
+
+[[bin]]
+name = "rust-cctv"
+path = "src/main.rs"

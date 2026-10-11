@@ -1,0 +1,4 @@
+/target
+/storage
+/config/secrets.yml
+.env
