@@ -51,13 +51,28 @@ Apache Basic 인증과 Moonfire NVR 로그인은 서로 별개입니다. NVR 웹
 
 ## Rust 모듈
 
+### 기본 분석 프리셋
+
+서비스 운영 기준은 1280×720 RTSP 입력, Tiny YOLOv2 RGB float32 0~255 전처리, 모델 입력 416×416, 추론 최대 10fps, confidence 0.25, 클래스별 NMS IoU 0.45로 둡니다. 최신 프레임만 분석하고 영상/이미지는 저장하지 않습니다. 추적은 5회 검출 후 확정, 15회 누락까지 유지, 확정 ID는 최대 60회 누락 동안 IoU 0.5 이상에서 재연결합니다. 10fps에서 각각 약 0.5초, 1.5초, 6초에 해당합니다.
+
+이 값은 현재 단일 임시 영상과 x86 제한 벤치마크로 정한 **초기 운영 기준**입니다. 640×360·10fps와 640×360·15fps의 person 점수 hit 비율은 각각 51.3%, 50.7%였지만 정답 라벨이 없어 정확도 수치로 볼 수 없습니다. 따라서 해상도는 정보 손실을 줄이도록 카메라 원본 720p를 유지하고, 모델 호출만 10fps로 제한합니다. 이 제한은 FFmpeg가 입력 프레임을 디코드하고 416×416 RGB로 축소하는 빈도까지 줄이지 않습니다. 정밀도/재현율과 카메라 조건별 정확도는 주간·야간·빈 화면·가림 장면을 라벨링한 뒤 확정해야 합니다. 설정은 `RUST_CCTV_INFERENCE_FPS` 또는 `--inference-fps`로 조정할 수 있습니다.
+
+정답 라벨 평가에는 `accuracy-eval`을 사용합니다. TSV는 `frame_id`, `scene`, `image_path`, `class`, `x_min`, `y_min`, `x_max`, `y_max` 순서의 8개 열이며 좌표는 이미지 전체 너비/높이에 대한 0~1 비율입니다. 상대 이미지 경로는 TSV 파일의 폴더 기준입니다. 한 프레임에 여러 대상이 있으면 프레임 ID·장면·경로를 반복해 객체마다 한 행을 기록합니다. 대상이 없는 음성 프레임도 클래스와 좌표를 비워 한 행을 반드시 넣습니다. 클래스는 `person` 또는 `dog`만 받습니다. 도구는 서비스와 같은 416×416 RGB 전처리/모델을 사용하고, 클래스별 greedy IoU 매칭으로 precision/recall/F1을 출력합니다.
+
+```sh
+cargo run --release --bin accuracy-eval -- \
+  /path/to/tinyyolov2-7.onnx /path/to/labels.tsv 0.25 0.5
+```
+
+샘플 이미지는 평가용 임시 디렉터리에 두고 저장소나 이벤트 DB에 추가하지 않습니다. [ROADMAP.md](ROADMAP.md)에 라벨링 조건과 Pi 성능 측정을 마지막에 수행하는 순서를 기록했습니다.
+
 - 구현 순서와 검증 기준: [ROADMAP.md](ROADMAP.md)
 - `src/camera.rs`: 카메라 도메인 모델
 - `src/detection.rs`: 감지 이벤트 모델
 - `src/events.rs`: track 확정/종료 전이 이벤트 생성
 - `src/storage.rs`: 감지 이벤트 저장소 인터페이스
 
-`rust-cctv` 서비스 바이너리는 SQLite 이벤트 DB를 열고 무결성을 확인합니다. `RUST_CCTV_RTSP_URL` 또는 `--rtsp-url`을 지정하면 FFmpeg로 RTSP를 TCP 수신하고 320×180 gray8 프레임으로 축소해 차영상 지표를 출력합니다. 연결이 끊기면 1초부터 최대 30초까지 지수형 대기 후 재연결합니다. 로그에는 구간 FPS, 누적 디코드 프레임, 구간 평균/최대 gray 차이, 평균 축소·차영상 처리 시간, 임계값 초과 motion frame 수가 포함됩니다. `motion_frames`는 전체 320×180 평균 픽셀 차이가 5를 넘은 프레임 수입니다. `RUST_CCTV_MODEL_PATH` 또는 `--model-path`를 지정하면 Tiny YOLOv2 416×416 ONNX 모델로 person/dog를 추론합니다. 모델 입력은 RGB float32 0~255이며, 추론 대기 프레임은 최신 한 장만 유지해 오래된 프레임이 누적되지 않게 합니다. confidence 기본값은 0.25이고 `RUST_CCTV_SCORE_THRESHOLD` 또는 `--score-threshold`로 바꿀 수 있습니다. 5회 이상 검출된 track의 확정/종료 이벤트를 SQLite에 저장하고 5초마다 추론 FPS, 추론 시간, 프레임 나이, 이벤트 건수를 출력합니다. 프레임은 메모리에서만 처리하며 영상이나 스냅샷을 저장하지 않습니다. DB 기본 경로는 `./data/events.sqlite3`, camera ID 기본값은 `logitech_c922`입니다. `RUST_CCTV_DB_PATH`, `RUST_CCTV_CAMERA_ID` 환경변수 또는 `--db-path`, `--camera-id` 인자로 바꿀 수 있습니다. `SIGINT`/`SIGTERM`에서 정상 종료합니다. 모델 추론과 이벤트 저장의 실제 서비스 동작은 서버에서 확인해야 합니다.
+`rust-cctv` 서비스 바이너리는 SQLite 이벤트 DB를 열고 무결성을 확인합니다. `RUST_CCTV_RTSP_URL` 또는 `--rtsp-url`을 지정하면 FFmpeg로 RTSP를 TCP 수신하고 320×180 gray8 프레임으로 축소해 차영상 지표를 출력합니다. 연결이 끊기면 1초부터 최대 30초까지 지수형 대기 후 재연결합니다. 로그에는 구간 FPS, 누적 디코드 프레임, 구간 평균/최대 gray 차이, 평균 축소·차영상 처리 시간, 임계값 초과 motion frame 수가 포함됩니다. `motion_frames`는 전체 320×180 평균 픽셀 차이가 5를 넘은 프레임 수입니다. `RUST_CCTV_MODEL_PATH` 또는 `--model-path`를 지정하면 Tiny YOLOv2 416×416 ONNX 모델로 person/dog를 추론합니다. 모델 입력은 RGB float32 0~255이며, 추론 대기 프레임은 최신 한 장만 유지해 오래된 프레임이 누적되지 않게 합니다. confidence 기본값은 0.25이고 `RUST_CCTV_SCORE_THRESHOLD` 또는 `--score-threshold`로 바꿀 수 있습니다. 추론 최대 빈도는 기본 10fps이며 `RUST_CCTV_INFERENCE_FPS` 또는 `--inference-fps`로 0.1~30 범위에서 바꿀 수 있습니다. 실제 추론 FPS가 설정값보다 낮으면 모델 처리 속도가 상한입니다. 5회 이상 검출된 track의 확정/종료 이벤트를 SQLite에 저장하고 5초마다 추론 FPS, 추론 시간, 프레임 나이, 이벤트 건수를 출력합니다. 프레임은 메모리에서만 처리하며 영상이나 스냅샷을 저장하지 않습니다. DB 기본 경로는 `./data/events.sqlite3`, camera ID 기본값은 `logitech_c922`입니다. `RUST_CCTV_DB_PATH`, `RUST_CCTV_CAMERA_ID` 환경변수 또는 `--db-path`, `--camera-id` 인자로 바꿀 수 있습니다. `SIGINT`/`SIGTERM`에서 정상 종료합니다. 모델 추론과 이벤트 저장의 실제 서비스 동작은 서버에서 확인해야 합니다.
 
 ```sh
 RUST_CCTV_DB_PATH=./data/events.sqlite3 \

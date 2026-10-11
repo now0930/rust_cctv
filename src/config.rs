@@ -7,6 +7,7 @@ pub struct ServiceConfig {
     pub rtsp_url: Option<String>,
     pub model_path: Option<PathBuf>,
     pub score_threshold: f32,
+    pub inference_fps: f64,
 }
 
 impl ServiceConfig {
@@ -23,6 +24,11 @@ impl ServiceConfig {
             .map(|value| value.parse::<f32>())
             .transpose()?
             .unwrap_or(0.25);
+        let mut inference_fps = env::var("RUST_CCTV_INFERENCE_FPS")
+            .ok()
+            .map(|value| value.parse::<f64>())
+            .transpose()?
+            .unwrap_or(10.0);
 
         let mut args = env::args().skip(1);
         while let Some(argument) = args.next() {
@@ -58,6 +64,12 @@ impl ServiceConfig {
                     };
                     score_threshold = value.parse()?;
                 }
+                "--inference-fps" => {
+                    let Some(value) = args.next() else {
+                        return Err("--inference-fps requires a number".into());
+                    };
+                    inference_fps = value.parse()?;
+                }
                 _ => return Err(format!("unknown argument: {argument}; use --help").into()),
             }
         }
@@ -76,6 +88,9 @@ impl ServiceConfig {
         if !(0.0..=1.0).contains(&score_threshold) {
             return Err("score threshold must be between 0 and 1".into());
         }
+        if !inference_fps.is_finite() || !(0.1..=30.0).contains(&inference_fps) {
+            return Err("inference FPS must be between 0.1 and 30".into());
+        }
         if model_path.is_some() && rtsp_url.is_none() {
             return Err("RTSP URL is required when a model path is configured".into());
         }
@@ -86,6 +101,7 @@ impl ServiceConfig {
             rtsp_url,
             model_path,
             score_threshold,
+            inference_fps,
         }))
     }
 }

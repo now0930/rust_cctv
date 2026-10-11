@@ -16,6 +16,10 @@ use std::{
 };
 
 const MAX_REIDENTIFY_MISSED_FRAMES: u32 = 60;
+const TRACK_MAX_MISSED_FRAMES: u32 = 15;
+const TRACK_MIN_HITS: u64 = 5;
+const TRACK_MIN_IOU: f32 = 0.3;
+const TRACK_REIDENTIFY_MIN_IOU: f32 = 0.5;
 static SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
 
 #[cfg(unix)]
@@ -57,7 +61,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         .transpose()?;
     let event_count = store.count()?;
     println!(
-        "event=service_ready service=rust-cctv camera_id={:?} database={:?} events={event_count} input={} detector={}",
+        "event=service_ready service=rust-cctv camera_id={:?} database={:?} events={event_count} input={} detector={} score_threshold={:.2} inference_fps={:.1} model_input={}x{}",
         config.camera_id,
         config.database_path,
         if config.rtsp_url.is_some() {
@@ -66,6 +70,10 @@ fn run() -> Result<(), Box<dyn Error>> {
             "not_configured"
         },
         if detector.is_some() { "tinyyolov2" } else { "disabled" },
+        config.score_threshold,
+        config.inference_fps,
+        rust_cctv::vision::INPUT_WIDTH,
+        rust_cctv::vision::INPUT_HEIGHT,
     );
 
     let latest_frames = detector.as_ref().map(|_| LatestFrames::new());
@@ -80,15 +88,36 @@ fn run() -> Result<(), Box<dyn Error>> {
         process::id(),
         SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis()
     );
-    let mut tracker = IouTracker::new(15, 0.3, 5, MAX_REIDENTIFY_MISSED_FRAMES, 0.5);
+    let mut tracker = IouTracker::new(
+        TRACK_MAX_MISSED_FRAMES,
+        TRACK_MIN_IOU,
+        TRACK_MIN_HITS,
+        MAX_REIDENTIFY_MISSED_FRAMES,
+        TRACK_REIDENTIFY_MIN_IOU,
+    );
     let mut event_emitter = TrackEventEmitter::new(run_id);
     let mut analytics = AnalyticsWindow::new();
+    let inference_interval = Duration::from_secs_f64(1.0 / config.inference_fps);
+    let mut next_inference_at = Instant::now();
 
     while !SHUTDOWN_REQUESTED.load(Ordering::Relaxed) {
         drain_ingest_messages(&messages_rx, &config.camera_id);
+        if detector.is_some() {
+            let now = Instant::now();
+            if now < next_inference_at {
+                let wait = (next_inference_at - now).min(Duration::from_millis(100));
+                match messages_rx.recv_timeout(wait) {
+                    Ok(message) => log_ingest_message(message, &config.camera_id),
+                    Err(RecvTimeoutError::Timeout) => {}
+                    Err(RecvTimeoutError::Disconnected) => {}
+                }
+                continue;
+            }
+        }
         let frame = latest_frames.as_ref().and_then(LatestFrames::take_latest);
         if let (Some(detector), Some(frame)) = (&detector, frame) {
             let inference_started = Instant::now();
+            next_inference_at = inference_started + inference_interval;
             let detections = detector.detect_rgb(&frame.rgb, config.score_threshold)?;
             let inference_elapsed = inference_started.elapsed();
             let frame_age = frame.received_at.elapsed();
@@ -138,8 +167,8 @@ fn run() -> Result<(), Box<dyn Error>> {
 }
 
 fn print_usage() {
-    println!("usage: rust-cctv [--db-path PATH] [--camera-id ID] [--rtsp-url URL] [--model-path PATH] [--score-threshold N]");
-    println!("environment: RUST_CCTV_DB_PATH, RUST_CCTV_CAMERA_ID, RUST_CCTV_RTSP_URL, RUST_CCTV_MODEL_PATH, RUST_CCTV_SCORE_THRESHOLD");
+    println!("usage: rust-cctv [--db-path PATH] [--camera-id ID] [--rtsp-url URL] [--model-path PATH] [--score-threshold N] [--inference-fps N]");
+    println!("environment: RUST_CCTV_DB_PATH, RUST_CCTV_CAMERA_ID, RUST_CCTV_RTSP_URL, RUST_CCTV_MODEL_PATH, RUST_CCTV_SCORE_THRESHOLD, RUST_CCTV_INFERENCE_FPS");
 }
 
 fn drain_ingest_messages(messages: &Receiver<IngestMessage>, camera_id: &str) {

@@ -23,6 +23,10 @@ path = "src/bin/model_probe.rs"
 name = "event-db"
 path = "src/bin/event_db.rs"
 
+[[bin]]
+name = "accuracy-eval"
+path = "src/bin/accuracy_eval.rs"
+
 [dependencies]
 ffmpeg-next = { version = "7.1.0", default-features = false, features = ["codec", "format", "software-scaling"] }
 libc = "0.2.190"
