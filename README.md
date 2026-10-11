@@ -25,8 +25,6 @@ PUID=$(id -u) PGID=$(id -g) docker compose up -d
 
 호스트에 연결된 USB 웹캠은 `webcam-publisher`가 V4L2에서 읽어 RTSP로 변환하고, `webcam-rtsp`가 `rtsp://webcam-rtsp:8554/webcam` 주소로 제공합니다. `/dev/video0`와 호스트 `video` 그룹이 컨테이너에 전달됩니다. video 그룹 번호가 44가 아니면 `.env`에 `VIDEO_GID`를 지정하세요. Moonfire 설정의 **Cameras and streams**에서 이 RTSP URL을 추가하고 stream을 sample directory에 연결해 recording을 켜야 저장됩니다. 이 경로는 변환을 위해 CPU 인코딩을 사용합니다.
 
-실시간 분석은 같은 RTSP 스트림을 별도로 구독하는 Frigate 서비스가 맡습니다. `frigate-data/config.yml`은 사람 감지를 초당 5프레임으로 설정하고, 이벤트 스냅샷은 저장하지만 중복 녹화는 하지 않습니다. Moonfire는 기존처럼 연속 녹화를 담당하므로, 약 1분 녹화 단위가 실시간 분석 주기를 제한하지 않습니다. Frigate UI는 `https://<설정한 CCTV 도메인>/frigate/`에서 열립니다. 처음 실행한 뒤 `docker compose logs frigate`에서 초기 관리자 비밀번호를 확인하고 Frigate 로그인 화면에서 설정하세요. 기본 설정은 Frigate의 CPU OpenVINO 분석기와 사람 감지를 사용합니다. [Frigate 설치 및 분석 구성](https://docs.frigate.video/guides/getting_started/)
-
 이 시작 설정은 인증 없이 영상 열람을 허용하므로 `8081`을 인터넷이나 신뢰할 수 없는 네트워크에 공개하지 마세요. 원격 접근에는 인증 및 HTTPS 프록시를 설정하세요. RTSP 카메라 비밀번호를 저장소에 커밋하지 마세요.
 
 Moonfire NVR은 영상 저장에 H.264/RTSP를 사용하며, 모션 감지/영상 분석은 제공하지 않습니다. 설정과 데이터는 각각 `config/moonfire-nvr.toml`, `storage/`에 있습니다. 사용자 ID와 그룹 ID는 Compose 실행 때 `PUID`/`PGID` 환경변수로 호스트 사용자에 맞춰 전달합니다. 운영 상세: <https://github.com/scottlamb/moonfire-nvr/blob/v0.7.33/guide/install.md>
@@ -43,7 +41,7 @@ set +a
 ./configure-cctv-apache.sh
 ```
 
-프록시 설정 스크립트는 Apache 설정 파일을 백업하고 구문 검사에 통과한 경우에만 graceful 재시작합니다. Moonfire와 Frigate 컨테이너 IP를 프록시 대상으로 기록하므로 컨테이너를 재생성해 IP가 바뀌면 다시 실행해야 합니다.
+프록시 설정 스크립트는 Apache 설정 파일을 백업하고 구문 검사에 통과한 경우에만 graceful 재시작합니다. Moonfire 컨테이너 IP를 프록시 대상으로 기록하므로 컨테이너를 재생성해 IP가 바뀌면 다시 실행해야 합니다. 기존 Apache 설정에 남아 있는 Frigate 프록시 규칙도 스크립트가 제거합니다.
 
 Apache Basic 인증과 Moonfire NVR 로그인은 서로 별개입니다. NVR 웹 로그인 계정은 `./configure-moonfire-users.sh`를 실행하고 Moonfire 설정 화면의 **Users** 항목에서 추가하세요. 기존 사용자가 로그에 `incorrect password`로 표시되면 Users 항목에서 해당 사용자의 비밀번호를 재설정해야 합니다. 이 스크립트는 설정 편집 중 녹화가 중단되지 않도록 NVR을 잠시 중지하고, 설정 화면을 닫으면 다시 시작합니다. 설정 도구가 즉시 종료되거나 실패하면 스크립트가 임시 진단 로그를 출력합니다.
 

@@ -54,29 +54,6 @@ services:
     networks:
       - default
 
-  frigate:
-    image: ghcr.io/blakeblackshear/frigate:stable
-    restart: unless-stopped
-    stop_grace_period: 30s
-    shm_size: "128mb"
-    environment:
-      TZ: Asia/Seoul
-      FRIGATE_BASE_PATH: /frigate
-    volumes:
-      - ./frigate-data:/config
-      - ./frigate-storage:/media/frigate
-      - /etc/localtime:/etc/localtime:ro
-    ports:
-      - "127.0.0.1:8971:8971"
-    depends_on:
-      - webcam-rtsp
-      - webcam-publisher
-    networks:
-      default: {}
-      web:
-        aliases:
-          - frigate
-
   moonfire-nvr:
     image: ghcr.io/scottlamb/moonfire-nvr:v0.7.33
     command: run
