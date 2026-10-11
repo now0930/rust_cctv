@@ -1,4 +1,8 @@
 /target
 /storage
+/frigate-storage
+/frigate-data/.storage
+/frigate-data/model_cache
+/frigate-data/frigate.db*
 /config/secrets.yml
 .env

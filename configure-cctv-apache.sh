@@ -7,6 +7,7 @@ cd "$script_dir"
 
 apache_container="${APACHE_CONTAINER:-}"
 moonfire_container="${MOONFIRE_CONTAINER:-}"
+frigate_container="${FRIGATE_CONTAINER:-}"
 moonfire_network="${MOONFIRE_NETWORK:-}"
 host_config="${APACHE_HOST_CONFIG:-}"
 config_marker="# BEGIN rust_cctv CCTV HTTPS proxy"
@@ -30,20 +31,24 @@ command -v docker >/dev/null 2>&1 || fail "docker 명령을 찾을 수 없습니
 if [[ -z "$moonfire_container" ]]; then
   moonfire_container="$(docker compose ps -q moonfire-nvr 2>/dev/null || true)"
 fi
+if [[ -z "$frigate_container" ]]; then
+  frigate_container="$(docker compose ps -q frigate 2>/dev/null || true)"
+fi
 [[ -n "$apache_container" ]] || fail "APACHE_CONTAINER를 지정하세요."
 [[ -n "$moonfire_container" ]] || fail "실행 중인 Moonfire 컨테이너를 찾을 수 없습니다. MOONFIRE_CONTAINER를 지정하세요."
+[[ -n "$frigate_container" ]] || fail "실행 중인 Frigate 컨테이너를 찾을 수 없습니다. 먼저 'docker compose up -d frigate'를 실행하세요."
 [[ -n "$moonfire_network" ]] || fail "MOONFIRE_NETWORK를 지정하세요."
 [[ -n "$host_config" ]] || fail "APACHE_HOST_CONFIG를 지정하세요."
 [[ -n "$domain" ]] || fail "CCTV_DOMAIN을 지정하세요."
 [[ -f "$host_config" && -w "$host_config" ]] ||
   fail "Apache 설정 파일 '$host_config'가 없거나 수정할 수 없습니다."
 
-for container in "$apache_container" "$moonfire_container"; do
+for container in "$apache_container" "$moonfire_container" "$frigate_container"; do
   running="$(docker inspect --format '{{.State.Running}}' "$container" 2>/dev/null || true)"
   [[ "$running" == true ]] || fail "컨테이너 '$container'가 실행 중이 아닙니다."
 done
 
-for container in "$apache_container" "$moonfire_container"; do
+for container in "$apache_container" "$moonfire_container" "$frigate_container"; do
   if ! docker inspect --format \
     '{{range $name, $network := .NetworkSettings.Networks}}{{println $name}}{{end}}' \
     "$container" | grep -Fxq "$moonfire_network"; then
@@ -56,6 +61,11 @@ moonfire_ip="$(docker inspect --format \
   "$moonfire_container" 2>/dev/null || true)"
 [[ -n "$moonfire_ip" ]] ||
   fail "Moonfire 컨테이너의 '$moonfire_network' 네트워크 IP를 확인하지 못했습니다."
+frigate_ip="$(docker inspect --format \
+  "{{with index .NetworkSettings.Networks \"$moonfire_network\"}}{{.IPAddress}}{{end}}" \
+  "$frigate_container" 2>/dev/null || true)"
+[[ -n "$frigate_ip" ]] ||
+  fail "Frigate 컨테이너의 '$moonfire_network' 네트워크 IP를 확인하지 못했습니다."
 
 if ! docker exec "$apache_container" getent hosts moonfire-nvr >/dev/null 2>&1 &&
    ! docker exec "$apache_container" getent hosts "$moonfire_container" >/dev/null 2>&1; then
@@ -70,8 +80,8 @@ docker exec "$apache_container" test -r \
   fail "Apache 컨테이너에서 인증서 개인 키를 읽을 수 없습니다."
 
 docker exec -u 0 "$apache_container" sh -c \
-  'test -d /tmp/wp_update && test -w /tmp/wp_update' ||
-  fail "Apache 컨테이너의 쓰기 가능한 /tmp/wp_update 볼륨을 찾을 수 없습니다. 인증 파일을 저장할 영구 쓰기 가능 위치를 확인하세요."
+  'test -d "$1" && test -w "$1"' sh "$(dirname -- "$auth_file")" ||
+  fail "Apache 컨테이너에서 인증 파일 디렉터리를 쓸 수 없습니다. APACHE_AUTH_FILE의 경로와 쓰기 권한을 확인하세요."
 
 if docker exec "$apache_container" test -e "$auth_file"; then
   echo "기존 Basic 인증 파일을 사용합니다. 비밀번호 파일은 덮어쓰지 않습니다."
@@ -83,8 +93,8 @@ else
   if ! docker exec -u 0 -it "$apache_container" htpasswd -cB "$auth_file" "$auth_user"; then
     echo "컨테이너의 쓰기 권한 진단:" >&2
     docker exec -u 0 "$apache_container" sh -c \
-      'id; ls -ld /tmp/wp_update; test -w /tmp/wp_update && echo "directory writable" || echo "directory not writable"; grep " /tmp/wp_update " /proc/mounts || true' >&2 || true
-    fail "Basic 인증 파일을 만들지 못했습니다. /tmp/wp_update 볼륨의 권한 또는 마운트 옵션을 확인하세요."
+      'id; ls -ld "$1"; test -w "$1" && echo "directory writable" || echo "directory not writable"; grep -F " $1 " /proc/mounts || true' sh "$(dirname -- "$auth_file")" >&2 || true
+    fail "Basic 인증 파일을 만들지 못했습니다. APACHE_AUTH_FILE 디렉터리의 권한 또는 마운트 옵션을 확인하세요."
   fi
   docker exec -u 0 "$apache_container" chown root:www-data "$auth_file"
   docker exec -u 0 "$apache_container" chmod 640 "$auth_file"
@@ -94,13 +104,24 @@ backup="${host_config}.bak.$(date +%Y%m%d%H%M%S)"
 if grep -Fq "$config_marker" "$host_config"; then
   temporary_config="$(mktemp "${host_config}.tmp.XXXXXX")"
   cp -p -- "$host_config" "$backup"
-  awk -v marker="$config_marker" -v ip="$moonfire_ip" '
+  awk -v marker="$config_marker" -v ip="$moonfire_ip" -v frigate_ip="$frigate_ip" '
     index($0, marker) { in_block = !in_block }
+    in_block && /ProxyPass(Reverse)? \/frigate\// { next }
     in_block && /ProxyPass \/ http:\/\/[^:]+:8080\// {
       sub(/http:\/\/[^:]+:8080\//, "http://" ip ":8080/")
     }
     in_block && /ProxyPassReverse \/ http:\/\/[^:]+:8080\// {
       sub(/http:\/\/[^:]+:8080\//, "http://" ip ":8080/")
+    }
+    in_block && /ProxyPreserveHost On/ {
+      print
+      printf "    ProxyPass /frigate/ws ws://%s:8971/frigate/ws\\n", frigate_ip
+      printf "    ProxyPassReverse /frigate/ws ws://%s:8971/frigate/ws\\n", frigate_ip
+      printf "    ProxyPass /frigate/live/ ws://%s:8971/frigate/live/\\n", frigate_ip
+      printf "    ProxyPassReverse /frigate/live/ ws://%s:8971/frigate/live/\\n", frigate_ip
+      printf "    ProxyPass /frigate/ http://%s:8971/frigate/\\n", frigate_ip
+      printf "    ProxyPassReverse /frigate/ http://%s:8971/frigate/\\n", frigate_ip
+      next
     }
     { print }
   ' "$host_config" > "$temporary_config"
@@ -120,13 +141,19 @@ else
 
     ProxyRequests Off
     ProxyPreserveHost On
+    ProxyPass /frigate/ws ws://$frigate_ip:8971/frigate/ws
+    ProxyPassReverse /frigate/ws ws://$frigate_ip:8971/frigate/ws
+    ProxyPass /frigate/live/ ws://$frigate_ip:8971/frigate/live/
+    ProxyPassReverse /frigate/live/ ws://$frigate_ip:8971/frigate/live/
+    ProxyPass /frigate/ http://$frigate_ip:8971/frigate/
+    ProxyPassReverse /frigate/ http://$frigate_ip:8971/frigate/
     ProxyPass / http://$moonfire_ip:8080/ connectiontimeout=5 timeout=300
     ProxyPassReverse / http://$moonfire_ip:8080/
 
     <Location />
         AuthType Basic
         AuthName "CCTV"
-        AuthUserFile /tmp/wp_update/cctv.htpasswd
+        AuthUserFile $auth_file
         Require valid-user
     </Location>
 
