@@ -12,7 +12,6 @@ use std::{
 };
 
 const PERSON: usize = 14;
-const DOG: usize = 11;
 const INPUT_WIDTH: u32 = 416;
 const INPUT_HEIGHT: u32 = 416;
 
@@ -134,11 +133,12 @@ fn load_labels(path: &str) -> Result<BTreeMap<String, FrameLabels>, Box<dyn Erro
         }
         let class_id = match columns[3] {
             "person" => PERSON,
-            "dog" => DOG,
             other => {
-                return Err(
-                    format!("unsupported class {other:?} at line {}", line_number + 1).into(),
+                return Err(format!(
+                    "unsupported class {other:?}; this evaluator accepts person only at line {}",
+                    line_number + 1
                 )
+                .into())
             }
         };
         let mut coordinates = [0.0f32; 4];
@@ -249,7 +249,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     let mut by_scene_class = BTreeMap::<(String, usize), Counts>::new();
     for (frame_id, frame) in &frames {
         let detections = detect_first_frame(&detector, &frame.image_path, score_threshold)?;
-        for class_id in [PERSON, DOG] {
+        for class_id in [PERSON] {
             let mut class_detections: Vec<&Detection> = detections
                 .iter()
                 .filter(|detection| detection.class_id == class_id)

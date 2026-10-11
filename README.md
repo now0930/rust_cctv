@@ -57,10 +57,10 @@ Apache Basic 인증과 Moonfire NVR 로그인은 서로 별개입니다. NVR 웹
 
 이 값은 현재 단일 임시 영상과 x86 제한 벤치마크로 정한 **초기 운영 기준**입니다. 640×360·10fps와 640×360·15fps의 person 점수 hit 비율은 각각 51.3%, 50.7%였지만 정답 라벨이 없어 정확도 수치로 볼 수 없습니다. 따라서 해상도는 정보 손실을 줄이도록 카메라 원본 720p를 유지하고, 모델 호출만 10fps로 제한합니다. 이 제한은 FFmpeg가 입력 프레임을 디코드하고 416×416 RGB로 축소하는 빈도까지 줄이지 않습니다. 정밀도/재현율과 카메라 조건별 정확도는 주간·야간·빈 화면·가림 장면을 라벨링한 뒤 확정해야 합니다. 설정은 `RUST_CCTV_INFERENCE_FPS` 또는 `--inference-fps`로 조정할 수 있습니다.
 
-정답 라벨 평가에는 `accuracy-eval`을 사용합니다. TSV는 `frame_id`, `scene`, `image_path`, `class`, `x_min`, `y_min`, `x_max`, `y_max` 순서의 8개 열이며 좌표는 이미지 전체 너비/높이에 대한 0~1 비율입니다. 상대 이미지 경로는 TSV 파일의 폴더 기준입니다. 한 프레임에 여러 대상이 있으면 프레임 ID·장면·경로를 반복해 객체마다 한 행을 기록합니다. 대상이 없는 음성 프레임도 클래스와 좌표를 비워 한 행을 반드시 넣습니다. 클래스는 `person` 또는 `dog`만 받습니다. 도구는 서비스와 같은 416×416 RGB 전처리/모델을 사용하고, 클래스별 greedy IoU 매칭으로 precision/recall/F1을 출력합니다.
+사람 정답 라벨 평가에는 `accuracy-eval`을 사용합니다. TSV는 `frame_id`, `scene`, `image_path`, `class`, `x_min`, `y_min`, `x_max`, `y_max` 순서의 8개 열이며 좌표는 이미지 전체 너비/높이에 대한 0~1 비율입니다. 상대 이미지 경로는 TSV 파일의 폴더 기준입니다. 한 프레임에 여러 사람이 있으면 프레임 ID·장면·경로를 반복해 사람마다 한 행을 기록합니다. 사람이 없는 음성 프레임도 class와 좌표를 비워 한 행을 반드시 넣습니다. 이 평가기는 `person` 클래스만 받습니다. 도구는 서비스와 같은 416×416 RGB 전처리/모델을 사용하고, confidence 순 greedy IoU 매칭으로 precision/recall/F1을 출력합니다.
 
 ```sh
-cargo run --release --bin accuracy-eval -- \
+CARGO_TARGET_DIR="$PWD/.codex-target" cargo run --release --bin accuracy-eval -- \
   /path/to/tinyyolov2-7.onnx /path/to/labels.tsv 0.25 0.5
 ```
 
